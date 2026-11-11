@@ -1,6 +1,6 @@
 /* LottoStat AI service worker
    เมื่ออัปโหลดไฟล์เวอร์ชันใหม่ ให้เปลี่ยนเลข VERSION ด้านล่าง (เช่น v1 -> v2) เพื่อให้มือถือทุกเครื่องได้ไฟล์ใหม่ */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'lottostat-' + VERSION;
 const APP_SHELL = [
   './', './index.html', './app.js', './vendor.js', './styles.css', './manifest.json',
