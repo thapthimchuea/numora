@@ -1,6 +1,6 @@
 /* Numora service worker
    เมื่ออัปโหลดไฟล์เวอร์ชันใหม่ ให้เปลี่ยนเลข VERSION ด้านล่าง (เช่น v1 -> v2) เพื่อให้มือถือทุกเครื่องได้ไฟล์ใหม่ */
-const VERSION = 'v7';
+const VERSION = 'v8';
 const CACHE = 'numora-' + VERSION;
 const APP_SHELL = [
   './', './index.html', './app.js', './vendor.js', './styles.css', './manifest.json',
@@ -31,7 +31,16 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (NEVER_CACHE.some(h => url.hostname.includes(h))) return;
-  if (url.pathname.endsWith('/data/draws.json')) return; // ผลรางวัลล่าสุด: ดึงสดจากเซิร์ฟเวอร์เสมอ
+  // ไฟล์ข้อมูลผลรางวัล: ดึงสดก่อน ถ้าออฟไลน์ใช้ฉบับล่าสุดที่เก็บไว้
+  if (url.origin === location.origin && url.pathname.includes('/data/')) {
+    e.respondWith(
+      fetch(req.url, { cache: 'no-store' }).then(res => {
+        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(url.pathname, copy)); }
+        return res;
+      }).catch(() => caches.match(url.pathname))
+    );
+    return;
+  }
 
   // หน้าแอป: ลองเน็ตก่อน (ได้เวอร์ชันล่าสุด) ถ้าออฟไลน์ใช้ของในเครื่อง
   if (req.mode === 'navigate') {

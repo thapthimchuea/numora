@@ -28,12 +28,12 @@ jobs:
         run: node scripts/update-draws.mjs
       - name: Commit if there is a new draw
         run: |
-          if git diff --quiet -- data/draws.json; then echo "no change"; exit 0; fi
+          if git diff --quiet -- data/draws.json data/prizes.json; then echo "no change"; exit 0; fi
           # บันทึกเฉพาะเมื่อมีงวดใหม่ (ไม่ commit แค่เพราะเวลาเช็กเปลี่ยน)
-          if git diff -U0 -- data/draws.json | grep -q '"d":'; then
+          if git diff -U0 -- data/draws.json | grep -q '"d":' || ! git diff --quiet -- data/prizes.json; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add data/draws.json
+            git add data/draws.json data/prizes.json
             git commit -m "Add new draw results"
             git push
           else

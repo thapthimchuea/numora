@@ -10,6 +10,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const FILE = 'data/draws.json';
+const PRIZE_FILE = 'data/prizes.json';
+const PRIZE_COUNTS = { first: 1, near1: 2, second: 5, third: 10, fourth: 50, fifth: 100, last3f: 2, last3b: 2, last2: 1 };
 const BASE_LATEST = '20261101'; // งวดล่าสุดที่ฝังอยู่ในแอปแล้ว (1 พ.ย. 2569)
 const DRY = process.argv.includes('--dry-run');
 const UA = 'Mozilla/5.0 (compatible; numora-updater; +https://github.com)';
@@ -82,11 +84,43 @@ function fromGloJson(json) {
   return { d, f, l: l.padStart(2, '0') };
 }
 
+function collectAll(node, re, out = [], depth = 0) {
+  if (node == null || depth > 8) return out;
+  if (typeof node === 'string' || typeof node === 'number') { const v = String(node).trim(); if (re.test(v)) out.push(v); return out; }
+  if (typeof node === 'object') for (const [k, v] of Object.entries(node)) if (!SKIP.has(k)) collectAll(v, re, out, depth + 1);
+  return out;
+}
+/* รางวัลครบทุกระดับจาก JSON ของ GLO — เก็บเฉพาะหมวดที่จำนวนครบถูกต้อง */
+function fullFromGlo(json) {
+  const out = {};
+  for (const [k, n] of Object.entries(PRIZE_COUNTS)) {
+    const re = k === 'last2' ? /^\d{1,2}$/ : k.startsWith('last3') ? /^\d{3}$/ : /^\d{6}$/;
+    let vals = collectAll(findKey(json, [k]), re).map(v => (k === 'last2' ? v.padStart(2, '0') : v));
+    vals = [...new Set(vals)];
+    if (vals.length === n || (k.startsWith('last3') && vals.length === 1)) out[k] = vals;
+  }
+  return out;
+}
+/* รางวัลครบทุกระดับจากข้อความหน้า The Thaiger */
+function fullFromThaigerText(text) {
+  const grab = (re, n, w) => { const m = text.match(re); if (!m) return []; return (text.slice(m.index + m[0].length).match(new RegExp(`\\b\\d{${w}}\\b`, 'g')) || []).slice(0, n); };
+  const out = {
+    first: grab(/1st prize/i, 1, 6), last2: grab(/last 2 digits/i, 1, 2),
+    last3f: grab(/first 3 digits/i, 2, 3), last3b: grab(/last 3 digits/i, 2, 3),
+    near1: grab(/results,\s*side 1st prize/i, 2, 6), second: grab(/results,\s*2nd prize/i, 5, 6),
+    third: grab(/results,\s*3rd prize/i, 10, 6), fourth: grab(/results,\s*4th prize/i, 50, 6), fifth: grab(/results,\s*5th prize/i, 100, 6),
+  };
+  for (const k of Object.keys(out)) if (out[k].length !== PRIZE_COUNTS[k]) delete out[k];
+  return out;
+}
+const fullCount = p => Object.keys(PRIZE_COUNTS).filter(k => p && p[k]).length;
+
 async function gloLatest() {
   const res = await http('https://www.glo.or.th/api/lottery/getLatestLottery', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   const json = await res.json();
   const r = fromGloJson(json);
   if (!r) console.log('GLO latest: แปลงข้อมูลไม่ได้ ตัวอย่างข้อมูลดิบ:', JSON.stringify(json).slice(0, 600));
+  if (r) { r.full = fullFromGlo(json); if (fullCount(r.full) < 9) console.log(`  (GLO ให้รางวัลครบ ${fullCount(r.full)}/9 หมวด) ตัวอย่างข้อมูล:`, JSON.stringify(json).slice(0, 400)); }
   return r;
 }
 async function gloByDate(k) {
@@ -95,6 +129,7 @@ async function gloByDate(k) {
   const json = await res.json();
   const r = fromGloJson(json);
   if (r && r.d !== k) return null;
+  if (r) r.full = fullFromGlo(json);
   return r;
 }
 async function thaiger(k) {
@@ -106,7 +141,7 @@ async function thaiger(k) {
   const f = text.match(/1st prize\s*(\d{6})\b/i);
   const l = text.match(/last 2 digits\s*(\d{2})\b/i);
   if (!f || !l) return null; // ผลยังไม่ออก (มักแสดงเป็น xxxxxx)
-  return { d: k, f: f[1], l: l[1] };
+  return { d: k, f: f[1], l: l[1], full: fullFromThaigerText(text) };
 }
 
 async function tryIt(name, fn) {
@@ -116,6 +151,19 @@ async function tryIt(name, fn) {
 
 /* ---------------- main ---------------- */
 const data = JSON.parse(readFileSync(FILE, 'utf8'));
+let prizes = { draws: {} };
+try { prizes = JSON.parse(readFileSync(PRIZE_FILE, 'utf8')); prizes.draws = prizes.draws || {}; } catch (e) { console.log('ยังไม่มี', PRIZE_FILE, '— จะสร้างใหม่'); }
+let prizesChanged = false;
+function savePrizes(k, results) {
+  // ใช้แหล่งที่ให้หมวดรางวัลครบที่สุด และต้องมีรางวัลที่ 1 ตรงกับผลที่ยืนยันแล้ว
+  const best = results.map(([n, r]) => [n, r.full || {}]).sort((a, b) => fullCount(b[1]) - fullCount(a[1]))[0];
+  if (!best) return;
+  const cur = prizes.draws[k] || {};
+  if (fullCount(best[1]) <= fullCount(cur)) return;
+  prizes.draws[k] = { ...cur, ...best[1] };
+  prizesChanged = true;
+  console.log(`  -> รางวัลครบ ${fullCount(prizes.draws[k])}/9 หมวด (${best[0]})`);
+}
 data.draws = Array.isArray(data.draws) ? data.draws : [];
 const known = new Set(data.draws.map(x => x.d));
 let cursor = [BASE_LATEST, ...known].sort().pop();
@@ -145,7 +193,19 @@ for (const k of due) {
   const conflict = rest.find(([, r]) => r.f !== first[1].f || r.l !== first[1].l);
   if (conflict) { console.log(`::warning::ผลงวด ${k} ไม่ตรงกัน: ${first[0]}=${first[1].f}/${first[1].l} vs ${conflict[0]}=${conflict[1].f}/${conflict[1].l} — ยังไม่บันทึก`); continue; }
   added.push({ ...first[1], src: results.map(([n]) => n).join('+') });
+  savePrizes(k, results);
   console.log(`  -> บันทึก ${k}: ${first[1].f} / ${first[1].l} (${results.map(([n]) => n).join(' + ')})`);
+}
+
+// เติมรางวัลให้ครบสำหรับงวดใหม่ที่มีแล้วแต่ข้อมูลรางวัลยังไม่ครบ (สูงสุด 3 งวด)
+for (const k of [...known].sort().reverse().slice(0, 3)) {
+  if (fullCount(prizes.draws[k]) === 9) continue;
+  console.log(`เติมข้อมูลรางวัลงวด ${k}`);
+  const results = [];
+  if (latest && latest.d === k) results.push(['GLO latest', latest]);
+  const t = await tryIt('Thaiger', () => thaiger(k)); if (t) results.push(['Thaiger', t]);
+  const known1 = data.draws.find(x => x.d === k);
+  savePrizes(k, results.filter(([, r]) => !known1 || r.f === known1.f));
 }
 
 if (due.length === 0 && latest) console.log('GLO รายงานงวดล่าสุดคือ', latest.d, '— แหล่งข้อมูลใช้งานได้');
@@ -157,4 +217,7 @@ if (added.length) {
   data.updatedAt = new Date().toISOString();
 }
 if (DRY) console.log('[dry-run] ไม่เขียนไฟล์');
-else writeFileSync(FILE, JSON.stringify(data, null, 2) + '\n');
+else {
+  writeFileSync(FILE, JSON.stringify(data, null, 2) + '\n');
+  if (prizesChanged) writeFileSync(PRIZE_FILE, JSON.stringify(prizes));
+}
