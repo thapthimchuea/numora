@@ -1,7 +1,7 @@
 {
-  "name": "LottoStat AI — วิเคราะห์สถิติสลาก",
-  "short_name": "LottoStat",
-  "description": "วิเคราะห์สถิติผลสลากกินแบ่งรัฐบาลย้อนหลัง เพื่อความบันเทิงและการศึกษาความน่าจะเป็น",
+  "name": "Numora — สถิติตัวเลข",
+  "short_name": "Numora",
+  "description": "วิเคราะห์สถิติตัวเลขย้อนหลังและความน่าจะเป็น เพื่อความบันเทิงและการศึกษา",
   "lang": "th",
   "id": "./",
   "start_url": "./",
@@ -10,10 +10,28 @@
   "orientation": "portrait",
   "background_color": "#09090b",
   "theme_color": "#09090b",
-  "categories": ["entertainment", "utilities"],
+  "categories": [
+    "entertainment",
+    "utilities"
+  ],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
