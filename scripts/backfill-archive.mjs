@@ -2,13 +2,14 @@
 //
 // รันครั้งเดียวบนคอม (ต้องใช้ Node 18 ขึ้นไป):
 //   node scripts/backfill-archive.mjs --probe     ทดลองอ่าน 3 หน้า แล้วแสดงผลให้ตรวจก่อน
+//   node scripts/backfill-archive.mjs --extra     เติมงวดที่อาจขาด (30–31 ธ.ค. ของทุกปี) ลงใน data/archive.json ที่มีอยู่
 //   node scripts/backfill-archive.mjs             ดึงจริง (~10–15 นาที) เขียน data/archive.json + scripts/backfill-report.txt
 //
 // แหล่งข้อมูล: หน้าผลสลากรายงวดของ PPTV (pptvhd36.com/lotto/check?date=YYYY-MM-DD)
 // ตรวจความถูกต้อง: (1) ข้างเคียงรางวัลที่ 1 ต้องเท่ากับรางวัลที่ 1 ±1
 //                  (2) เทียบเลขท้าย 2 ตัวกับชุดข้อมูล Hugging Face ANTDPU/ThaiGovernmentLotteryResults (MIT)
 //                  (3) ดึง 40 งวดที่เรารู้ผลแน่นอนแล้ว มาวัดความแม่นของแหล่งข้อมูล
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 
 const BASE = 'https://www.pptvhd36.com/lotto/check?date=';
 const HF_CSV = 'https://huggingface.co/datasets/ANTDPU/ThaiGovernmentLotteryResults/resolve/main/lotto.csv';
@@ -149,6 +150,35 @@ if (PROBE) {
     await sleep(DELAY);
   }
   const hf = await loadHF(); console.log('\nHugging Face:', hf.note);
+  process.exit(0);
+}
+
+/* ---------------- extra: เติมงวดท้ายปี ---------------- */
+if (process.argv.includes('--extra')) {
+  const file = JSON.parse(readFileSync('data/archive.json', 'utf8'));
+  const have = new Set(file.draws.map(x => x.d));
+  const hf = await loadHF();
+  const added = [], skipped = [];
+  for (let y = +START.slice(0, 4); y <= +END.slice(0, 4); y++) for (const dd of ['12-30', '12-31', '12-29']) {
+    const day = `${y}-${dd}`;
+    if (day < START || day > END || have.has(key(day))) continue;
+    if ([...have].some(k => k.startsWith(`${y}12`) && +k.slice(6) >= 29)) continue; // ปีนี้มีงวดท้ายเดือนแล้ว
+    let html; try { html = await get(BASE + day + '+'); } catch (e) { skipped.push(`${day}: โหลดไม่ได้ (${e.message})`); await sleep(DELAY); continue; }
+    await sleep(DELAY);
+    if (!html) continue;
+    const r = parse(html, key(day));
+    if (r.err) continue;
+    const nk = nearOk(r), hset = hf.map && hf.map.get(r.d), hv = hset ? (hset.has(r.l) ? 'match' : 'mismatch') : 'na';
+    if (nk === false || hv === 'mismatch') { skipped.push(`${day} ${r.f}/${r.l}: ไม่ผ่านการตรวจ (ข้างเคียง=${nk}, HF=${hv})`); continue; }
+    have.add(r.d); added.push({ d: r.d, f: r.f, l: r.l, chk: `${nk ? 'near1' : ''}${hv === 'match' ? '+hf' : ''}` });
+    console.log(`เพิ่ม ${day}: ${r.f} / ${r.l} (ตรวจ: ${added.at(-1).chk || 'none'})`);
+  }
+  file.draws = [...file.draws, ...added.map(({ d, f, l }) => ({ d, f, l }))].sort((a, b) => b.d.localeCompare(a.d));
+  file.generatedAt = new Date().toISOString();
+  writeFileSync('data/archive.json', JSON.stringify(file));
+  const msg = `\nเติมงวดท้ายปี: เพิ่ม ${added.length} งวด · รวมทั้งหมด ${file.draws.length} งวด${skipped.length ? '\nข้าม:\n  ' + skipped.join('\n  ') : ''}`;
+  console.log(msg);
+  try { writeFileSync('scripts/backfill-report.txt', readFileSync('scripts/backfill-report.txt', 'utf8') + msg + '\n'); } catch {}
   process.exit(0);
 }
 
