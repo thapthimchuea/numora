@@ -6,6 +6,8 @@ on:
     - cron: "*/30 8-11 1,2,16,17,30 * *"
     # สำรอง: เช็กวันละครั้ง 19:15 น. เวลาไทย
     - cron: "15 12 * * *"
+    # เลขเด็ด: เช็กเพิ่มวันละครั้ง 09:20 น. เวลาไทย
+    - cron: "20 2 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -26,6 +28,20 @@ jobs:
           node-version: 20
       - name: Fetch latest results
         run: node scripts/update-draws.mjs
+      - name: Fetch lucky numbers (เลขเด็ด) — ถ้าดึงไม่ได้ก็ข้าม ไม่กระทบผลรางวัล
+        continue-on-error: true
+        run: node scripts/update-tips.mjs
+      - name: Commit lucky numbers if changed
+        continue-on-error: true
+        run: |
+          if [ -n "$(git status --porcelain -- data/tips.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/tips.json
+            git commit -m "Update lucky numbers" && git push || echo "push skipped"
+          else
+            echo "tips unchanged"
+          fi
       - name: Commit if there is a new draw
         run: |
           if git diff --quiet -- data/draws.json data/prizes.json; then echo "no change"; exit 0; fi
