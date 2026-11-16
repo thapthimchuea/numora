@@ -8,19 +8,42 @@ on:
     - cron: "15 12 * * *"
     # เลขเด็ด: เช็กเพิ่มวันละครั้ง 09:20 น. เวลาไทย
     - cron: "20 2 * * *"
-  workflow_dispatch: {}
+    # ตัวเฝ้าผลวันหวยออก: เริ่ม 10:00 / 12:00 / 14:00 น. แล้วรอเช็กเองจนได้ผลครบ (กันกรณี GitHub ตั้งเวลาช้า)
+    - cron: "0 3,5,7 1,2,16,17,30 * *"
+  workflow_dispatch:
+    inputs:
+      watch:
+        description: "เฝ้าผลวันนี้จนครบ (ใช้ในวันหวยออก)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
-concurrency:
-  group: update-draws
-  cancel-in-progress: false
-
 jobs:
+  watch:
+    # งานยาว: นั่งรอผลในวันหวยออก (สูงสุด ~6 ชม.) — ไม่ใช่วันหวยออกจะจบทันที
+    if: github.event.schedule == '0 3,5,7 1,2,16,17,30 * *' || (github.event_name == 'workflow_dispatch' && inputs.watch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    concurrency:
+      group: watch-draw
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Watch for today's results
+        run: bash scripts/watch-draw.sh
+
   update:
+    if: github.event.schedule != '0 3,5,7 1,2,16,17,30 * *' && !(github.event_name == 'workflow_dispatch' && inputs.watch)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: update-draws
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,7 +74,7 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add data/draws.json data/prizes.json
             git commit -m "Add new draw results"
-            git push
+            git push || (git pull --rebase -X theirs && git push)
           else
             echo "only lastCheck changed; skip commit"
           fi
