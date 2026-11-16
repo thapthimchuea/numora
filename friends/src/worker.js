@@ -120,7 +120,8 @@ async function adminPage(env, url, msg = '') {
 <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><b style="font-family:ui-monospace,monospace;letter-spacing:1px;color:#fff">${code}</b>${st}</div>
 <div class="small" style="margin-top:2px">${esc(r.name || '-')} · สร้าง ${r.created ? thTime(r.created) : '-'}</div>
 ${uses.map(u => `<div class="small">• ${deviceLabel(u.ua || '')} · ${thTime(u.at)}</div>`).join('')}
-<div style="margin-top:6px"><button type="button" onclick="navigator.clipboard.writeText('${link}');this.textContent='คัดลอกแล้ว ✓'" style="width:auto;margin:4px 4px 0 0;padding:6px 10px;font-size:12px;font-weight:600">คัดลอกลิงก์เชิญ</button>${r.revoked ? act('restore', 'เปิดใช้อีกครั้ง', '#86efac') : act('revoke', 'ยกเลิกรหัส', '#fda4af')}${uses.length ? act('reset', 'ล้างเครื่องที่ใช้') : ''}${act('delete', 'ลบ', '#71717a')}</div></div>`;
+<input readonly value="${link}" onclick="this.select()" style="margin-top:8px;font-size:12.5px;letter-spacing:0;text-align:left;padding:9px 10px;font-family:ui-monospace,monospace;color:#a5f3fc">
+<div style="margin-top:6px"><button type="button" onclick="copyLink(this,'${link}')" style="width:auto;margin:4px 4px 0 0;padding:6px 10px;font-size:12px;font-weight:600">คัดลอกลิงก์เชิญ</button><button type="button" class="sharebtn" onclick="shareLink('${link}')" style="display:none;width:auto;margin:4px 4px 0 0;padding:6px 10px;font-size:12px;font-weight:600;background:linear-gradient(90deg,#00c853,#00b8d4)">แชร์…</button>${r.revoked ? act('restore', 'เปิดใช้อีกครั้ง', '#86efac') : act('revoke', 'ยกเลิกรหัส', '#fda4af')}${uses.length ? act('reset', 'ล้างเครื่องที่ใช้') : ''}${act('delete', 'ลบ', '#71717a')}</div></div>`;
   }).join('');
   const used = recs.filter(([, r]) => (r.uses || []).length && !r.revoked).length;
   return html(SHELL('Numora — จัดการรหัสเชิญ', `<div class="card" style="max-width:560px"><div class="in">
@@ -134,6 +135,18 @@ ${msg ? `<p style="color:#86efac">${esc(msg)}</p>` : ''}
 <select name="max" style="font-size:15px;letter-spacing:0"><option value="2">ใช้ได้ 2 เครื่อง</option><option value="1">1 เครื่อง</option><option value="3">3 เครื่อง</option></select></div>
 <button>สร้างรหัส</button></form>
 ${rows || '<p class="small" style="margin-top:14px">ยังไม่มีรหัส</p>'}
+<script>
+async function copyLink(btn, t) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(t); ok = true; } catch (e) {}
+  if (!ok) { const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.focus(); ta.select(); try { ok = document.execCommand('copy'); } catch (e) {} ta.remove(); }
+  btn.textContent = ok ? 'คัดลอกแล้ว ✓' : 'คัดลอกไม่ได้ — กดค้างที่ลิงก์ด้านบนเพื่อคัดลอก';
+  if (!ok) { const inp = btn.parentElement.previousElementSibling; if (inp) { inp.focus(); inp.select(); } }
+  setTimeout(() => (btn.textContent = 'คัดลอกลิงก์เชิญ'), 4000);
+}
+function shareLink(t) { navigator.share({ title: 'Numora', text: 'ลิงก์เชิญเข้าใช้แอป Numora (ใช้ได้เฉพาะคุณ)', url: t }).catch(() => {}); }
+if (navigator.share) document.querySelectorAll('.sharebtn').forEach(b => (b.style.display = 'inline-block'));
+</script>
 <p class="small" style="margin-top:14px">ส่ง "ลิงก์เชิญ" ให้เพื่อนทีละคน (มีรหัสอยู่ในลิงก์แล้ว) · ถ้าเพื่อนส่งต่อหลังใช้ครบจำนวนเครื่อง คนอื่นจะเปิดไม่ได้</p>
 </div></div>`));
 }
