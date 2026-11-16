@@ -33,7 +33,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const normCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^NUM/, '');
 const fmtCode = raw => `NUM-${raw.slice(0, 4)}-${raw.slice(4, 8)}`;
 function newCode() { const a = crypto.getRandomValues(new Uint8Array(8)); return [...a].map(x => ALPHA[x % ALPHA.length]).join(''); }
-const html = (body, status = 200, headers = {}) => new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer', ...headers } });
+const html = (body, status = 200, headers = {}) => new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'same-origin', ...headers } });
 const json = (obj, status = 200, headers = {}) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers } });
 
 /* ---------- code store (KV) ---------- */
@@ -144,8 +144,8 @@ const loginFails = new Map();
 async function admin(req, env, url) {
   const p = url.pathname;
   if (req.method === 'POST') { // กันการส่งฟอร์มข้ามเว็บ
-    const o = req.headers.get('origin');
-    if (o && o !== url.origin) return html('forbidden', 403);
+    const o = req.headers.get('origin'); // บางเบราว์เซอร์ส่ง "null" มา — ยอมรับได้ เพราะคุกกี้เป็น SameSite=Lax อยู่แล้ว
+    if (o && o !== 'null' && o !== url.origin) return html('forbidden', 403);
   }
   if (p === '/admin/login' && req.method === 'POST') {
     const ip = req.headers.get('cf-connecting-ip') || 'x', f = loginFails.get(ip) || { n: 0, t: 0 };
