@@ -49,6 +49,7 @@ const cleanNums = s => s
   .replace(/\d+\s*(อันดับ|เลขขายดี|เลขเด็ด)/g, ' ')
   .replace(/\d+\s*(ปี|พรรษา|วัน|นาที|ชั่วโมง|ล้าน|บาท|คน|องค์|เมตร|กม\.|%)/g, ' ');
 export const nums2 = s => [...new Set([...cleanNums(s).matchAll(/(?<![\d.\-\/:])\d{2}(?![\d.\-\/:])/g)].map(x => +x[0]))];
+export const nums3 = s => [...new Set([...cleanNums(s).matchAll(/(?<![\d.\-\/:])\d{3}(?![\d.\-\/:])/g)].map(x => +x[0]))];
 
 export function parseArticle(html) {
   // เนื้อหาเริ่มที่หัวข้อ h2/h3 แรก จบก่อนส่วน "คลิกตรวจหวย" / แท็ก
@@ -86,8 +87,8 @@ export function parseArticle(html) {
     } else continue;
     name = name.replace(/[:：\s]+$/, '').trim();
     if (!name || name.length > 60 || /^\d/.test(name) || SKIP_NAME.test(name)) continue;
-    const n = nums2(val);
-    if (n.length && n.length <= 20) entries.push({ name, nums: n });
+    const n = nums2(val), n3 = nums3(val);
+    if ((n.length || n3.length) && n.length <= 20 && n3.length <= 15) entries.push(n3.length ? { name, nums: n, nums3: n3 } : { name, nums: n });
   }
   return { top, entries };
 }
@@ -116,7 +117,7 @@ async function main() {
     const n = p.entries.length + (p.top.length ? 1 : 0);
     console.log(`  ${key}  top10=${p.top.join(',') || '-'}  แหล่ง ${p.entries.length}  ${title.slice(0, 50)}`);
     if (!n) continue;
-    if (PROBE) { p.entries.forEach(e => console.log(`      ${e.name}: ${e.nums.join(', ')}`)); continue; }
+    if (PROBE) { p.entries.forEach(e => console.log(`      ${e.name}: ${e.nums.join(', ')}${e.nums3 ? ` | 3 ตัว: ${e.nums3.map(x => String(x).padStart(3, '0')).join(', ')}` : ''}`)); continue; }
     const rec = { url, title: title.slice(0, 160), top: p.top, entries: p.entries, fetchedAt: new Date().toISOString() };
     const prev = db.draws[key];
     if (!prev || JSON.stringify([prev.top, prev.entries]) !== JSON.stringify([rec.top, rec.entries])) { db.draws[key] = rec; changed++; }
