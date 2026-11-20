@@ -6,7 +6,7 @@ on:
     - cron: "*/30 8-11 1,2,16,17,30 * *"
     # สำรอง: เช็กวันละครั้ง 19:15 น. เวลาไทย
     - cron: "15 12 * * *"
-    # เลขเด็ด: เช็กเพิ่มวันละครั้ง 09:20 น. เวลาไทย
+    # เลขเด็ด + ล็อกชุดลุ้นงวดถัดไป: เช็กเพิ่มวันละครั้ง 09:20 น. เวลาไทย
     - cron: "20 2 * * *"
     # ตัวเฝ้าผลวันหวยออก: เริ่ม 10:00 / 12:00 / 14:00 น. แล้วรอเช็กเองจนได้ผลครบ (กันกรณี GitHub ตั้งเวลาช้า)
     - cron: "0 3,5,7 1,2,16,17,30 * *"
@@ -77,4 +77,17 @@ jobs:
             git push || (git pull --rebase -X theirs && git push)
           else
             echo "only lastCheck changed; skip commit"
+          fi
+      - name: Lock numbers for the next draw (ชุดลุ้น)
+        continue-on-error: true
+        run: |
+          node scripts/lock-picks.mjs
+          if [ -n "$(git status --porcelain -- data/picks.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/picks.json
+            git commit -m "Lock numbers for next draw"
+            git push || (git pull --rebase --autostash -X theirs && git push)
+          else
+            echo "picks unchanged"
           fi

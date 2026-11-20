@@ -1,3 +1,7 @@
 _archive/
 _incoming/
 scripts/*-report.txt
+push-to-github.bat
+push.log
+deploy-friends.bat
+deploy.log
