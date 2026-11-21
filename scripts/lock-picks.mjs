@@ -16,7 +16,7 @@ function loadCore() {
   if (cut < 0) throw new Error('ไม่พบจุดตัดใน app.js');
   const React = { useState() {}, useMemo() {}, useEffect() {}, useRef() {}, createElement() {}, createContext: v => ({ v }), useContext() {} };
   // formulaName ใช้แค่ทำข้อความอธิบาย (อยู่หลังจุดตัด) → ใส่ตัวแทนไว้
-  const code = 'const formulaName = x => x;\n' + src.slice(0, cut) + '\nreturn { BASE_DRAWS, predict, predict3, makeDraw, keyOf, getNextDrawDate, DRAW_HOUR, DRAW_MIN };';
+  const code = 'const formulaName = x => x;\n' + src.slice(0, cut) + '\nreturn { BASE_DRAWS, FORMULAS, F3, predict, predict3, makeDraw, keyOf, getNextDrawDate, DRAW_HOUR, DRAW_MIN };';
   return new Function('React', 'localStorage', 'window', 'navigator', 'document', code)(React, { getItem: () => null, setItem() {} }, {}, {}, {});
 }
 
@@ -54,4 +54,35 @@ if (pk.picks.some(p => p.d === target)) {
   pk.picks.sort((a, b) => a.d.localeCompare(b.d));
   writeFileSync(PICKS, JSON.stringify(pk, null, 1) + '\n');
   console.log(`ล็อกงวด ${target}: 2 ตัว ชุด 10 = ${set.slice(0, 10).join(' ')} · +10 = ${set.slice(10).join(' ')} | 3 ตัว ชุด 10 = ${set3.slice(0, 10).join(' ')} · +10 = ${set3.slice(10).join(' ')} (ใช้ผลถึง ${latest})`);
+}
+
+// ===== สถิติสูตร: ล็อกเลข 10 ตัวแรกของทุกสูตร (2 ตัว และ 3 ตัวบน) ลง data/formulas.json =====
+{
+  const FILE = new URL('data/formulas.json', ROOT);
+  const N = 10;
+  const fx = existsSync(FILE) ? JSON.parse(readFileSync(FILE, 'utf8')) : {};
+  fx.note = 'เลข 10 ตัวแรกของทุกสูตรที่ล็อกไว้ก่อนผลออก (d = งวดวันที่ ค.ศ., f2 = เลข 2 ตัวต่อกัน, f3 = เลข 3 ตัวบนต่อกัน, at = เวลาที่ล็อก, base = งวดล่าสุดที่ใช้คำนวณ) · ล็อกแล้วไม่แก้ไข';
+  fx.since = fx.since || target;
+  fx.n = N;
+  fx.picks = Array.isArray(fx.picks) ? fx.picks : [];
+  const late = nowMs > drawMs - LOCK_MARGIN_MIN * 60e3;
+  if (fx.picks.some(p => p.d === target)) console.log(`สถิติสูตร: งวด ${target} ล็อกไว้แล้ว`);
+  else if (late) console.log(`สถิติสูตร: งวด ${target} เลยเวลาล็อกแล้ว`);
+  else {
+    const date = kd(target);
+    const f2 = {}, f3 = {};
+    for (const f of C.FORMULAS) {
+      if (f.id === 'tips' || f.id === 'overlap' || typeof f.score !== 'function') continue;
+      const nums = C.predict(f.id, draws, date, N).pairs.map(p => pad(p.n));
+      if (nums.length === N) f2[f.id] = nums.join('');
+    }
+    for (const k of Object.keys(C.F3)) {
+      const nums = C.predict3(k, draws, date, N, 'top3', null).pairs.map(p => pad(p.n, 3));
+      if (nums.length === N) f3[k] = nums.join('');
+    }
+    fx.picks.push({ d: target, f2, f3, at: new Date(nowMs).toISOString(), base: latest });
+    fx.picks.sort((a, b) => a.d.localeCompare(b.d));
+    writeFileSync(FILE, JSON.stringify(fx) + '\n');
+    console.log(`สถิติสูตร: ล็อกงวด ${target} · 2 ตัว ${Object.keys(f2).length} สูตร · 3 ตัว ${Object.keys(f3).length} สูตร`);
+  }
 }
