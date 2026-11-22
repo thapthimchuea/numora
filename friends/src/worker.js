@@ -6,7 +6,7 @@
 
 const DATA_ORIGIN = 'https://thapthimchuea.github.io/numora';
 const SESSION_COOKIE = 'nm_s', ADMIN_COOKIE = 'nm_a';
-const SESSION_DAYS = 400, ADMIN_HOURS = 12, DEFAULT_MAX = 2;
+const SESSION_DAYS = 400, ADMIN_HOURS = 12, DEFAULT_MAX = 1; // 1 รหัส = 1 เครื่อง
 const PUBLIC_PATHS = new Set(['/manifest.json', '/sw.js', '/robots.txt', '/favicon.ico']); // เบราว์เซอร์โหลดไฟล์พวกนี้โดยไม่ส่งคุกกี้
 const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -39,10 +39,15 @@ const json = (obj, status = 200, headers = {}) => new Response(JSON.stringify(ob
 /* ---------- code store (KV) ---------- */
 const getCode = async (env, raw) => { const v = await env.CODES.get('code:' + raw); return v ? JSON.parse(v) : null; };
 const putCode = (env, raw, rec) => env.CODES.put('code:' + raw, JSON.stringify(rec));
-const activeCache = new Map(); // ลดการอ่าน KV: จำผลตรวจไว้ 60 วินาทีต่อเครื่องเซิร์ฟเวอร์
+// สมุดรายชื่อรหัส: KV list() อัปเดตช้า (สูงสุดราว 1 นาที) ทำให้รหัสที่เพิ่งสร้างไม่ขึ้น/ที่ลบแล้วยังค้าง
+// จึงเก็บรายชื่อไว้ในคีย์เดียว แล้วอ่านคู่กับ list() · ตัดรหัสที่อ่านแล้วไม่มีข้อมูล (ลบแล้ว) ออก
+const INDEX_KEY = 'index:codes';
+const readIndex = async env => { try { const v = JSON.parse(await env.CODES.get(INDEX_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
+const writeIndex = (env, arr) => env.CODES.put(INDEX_KEY, JSON.stringify([...new Set(arr)]));
+const activeCache = new Map(); // ลดการอ่าน KV: จำผลตรวจไว้ 15 วินาทีต่อเครื่องเซิร์ฟเวอร์
 async function codeActive(env, raw, device) {
   const k = raw + '|' + device, hit = activeCache.get(k);
-  if (hit && hit.t > Date.now() - 60000) return hit.ok;
+  if (hit && hit.t > Date.now() - 15000) return hit.ok;
   const rec = await getCode(env, raw);
   const ok = !!rec && !rec.revoked && (rec.uses || []).some(u => u.d === device);
   activeCache.set(k, { ok, t: Date.now() });
@@ -94,7 +99,7 @@ async function redeem(req, env) {
   if (rec.revoked) return json({ ok: false, error: 'รหัสนี้ถูกยกเลิกแล้ว' }, 403);
   rec.uses = rec.uses || [];
   if (!rec.uses.some(u => u.d === device)) {
-    if (rec.uses.length >= (rec.max || DEFAULT_MAX)) return json({ ok: false, error: 'รหัสนี้ถูกใช้ครบจำนวนเครื่องแล้ว กรุณาขอรหัสใหม่จากผู้ส่ง' }, 403);
+    if (rec.uses.length >= Math.min(rec.max || DEFAULT_MAX, DEFAULT_MAX)) return json({ ok: false, error: 'รหัสนี้ถูกใช้ครบจำนวนเครื่องแล้ว กรุณาขอรหัสใหม่จากผู้ส่ง' }, 403);
     rec.uses.push({ d: device, at: Date.now(), ua: (req.headers.get('user-agent') || '').slice(0, 120) });
     await putCode(env, raw, rec);
   }
@@ -107,14 +112,21 @@ async function redeem(req, env) {
 const deviceLabel = ua => /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'Mac' : 'อื่นๆ';
 const thTime = ms => new Date(ms).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-async function adminPage(env, url, msg = '') {
+async function adminPage(env, url, msg = '', override = {}) {
   const list = []; let cursor;
-  do { const r = await env.CODES.list({ prefix: 'code:', cursor }); list.push(...r.keys); cursor = r.list_complete ? null : r.cursor; } while (cursor);
-  const recs = (await Promise.all(list.map(async k => [k.name.slice(5), JSON.parse(await env.CODES.get(k.name) || '{}')]))).sort((a, b) => (b[1].created || 0) - (a[1].created || 0));
+  do { const r = await env.CODES.list({ prefix: 'code:', cursor }); list.push(...r.keys.map(k => k.name.slice(5))); cursor = r.list_complete ? null : r.cursor; } while (cursor);
+  const idx = await readIndex(env);
+  const raws = [...new Set([...list, ...idx, ...Object.keys(override)])];
+  const recs = (await Promise.all(raws.map(async raw => [raw, raw in override ? override[raw] : await getCode(env, raw)])))
+    .filter(([, r]) => r && typeof r === 'object').sort((a, b) => (b[1].created || 0) - (a[1].created || 0));
+  // เติมรหัสที่มีอยู่จริงแต่ยังไม่อยู่ในสมุดรายชื่อ (รหัสเก่าก่อนมีสมุด)
+  const live = recs.map(([raw]) => raw);
+  // (เติมอย่างเดียว ไม่ตัดออก — รหัสที่เพิ่งสร้างอาจยังอ่านไม่เจอจากบางเซิร์ฟเวอร์ ตัดออกเฉพาะตอนกดลบ)
+  if (live.some(r => !idx.includes(r))) await writeIndex(env, [...idx, ...live]);
   const origin = url.origin;
   const rows = recs.map(([raw, r]) => {
     const code = fmtCode(raw), link = `${origin}/?code=${code}`, uses = r.uses || [];
-    const st = r.revoked ? '<span style="color:#fda4af">ยกเลิกแล้ว</span>' : uses.length ? `<span style="color:#86efac">ใช้แล้ว ${uses.length}/${r.max || DEFAULT_MAX}</span>` : '<span style="color:#67e8f9">ยังไม่ใช้</span>';
+    const st = r.revoked ? '<span style="color:#fda4af">ยกเลิกแล้ว</span>' : uses.length ? `<span style="color:#86efac">ใช้แล้ว ${uses.length} เครื่อง</span>` : '<span style="color:#67e8f9">ยังไม่ใช้</span>';
     const act = (a, label, color = '#a1a1aa') => `<form method="post" action="/admin/action" style="display:inline"><input type="hidden" name="a" value="${a}"><input type="hidden" name="code" value="${raw}"><button style="width:auto;margin:4px 4px 0 0;padding:6px 10px;font-size:12px;font-weight:500;background:#18181b;border:1px solid #3f3f46;color:${color}">${label}</button></form>`;
     return `<div style="border:1px solid #27272a;border-radius:14px;padding:12px;margin-top:10px;background:#111114">
 <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><b style="font-family:ui-monospace,monospace;letter-spacing:1px;color:#fff">${code}</b>${st}</div>
@@ -131,8 +143,8 @@ ${msg ? `<p style="color:#86efac">${esc(msg)}</p>` : ''}
 <form method="post" action="/admin/action" style="margin-top:12px;border:1px solid #27272a;border-radius:14px;padding:12px">
 <input type="hidden" name="a" value="create"><p style="margin:0 0 8px;color:#e4e4e7">สร้างรหัสใหม่</p>
 <input name="name" placeholder="ชื่อเพื่อน (ไม่บังคับ)" style="font-size:15px;letter-spacing:0;text-align:left">
-<div style="display:flex;gap:8px;margin-top:8px"><select name="n" style="font-size:15px;letter-spacing:0"><option value="1">1 รหัส</option><option value="3">3 รหัส</option><option value="5">5 รหัส</option><option value="10">10 รหัส</option></select>
-<select name="max" style="font-size:15px;letter-spacing:0"><option value="2">ใช้ได้ 2 เครื่อง</option><option value="1">1 เครื่อง</option><option value="3">3 เครื่อง</option></select></div>
+<div style="display:flex;gap:8px;margin-top:8px"><select name="n" style="font-size:15px;letter-spacing:0"><option value="1">1 รหัส</option><option value="3">3 รหัส</option><option value="5">5 รหัส</option><option value="10">10 รหัส</option></select></div>
+<p class="small" style="margin:6px 0 0">1 รหัส ใช้ได้ 1 เครื่องเท่านั้น</p>
 <button>สร้างรหัส</button></form>
 ${rows || '<p class="small" style="margin-top:14px">ยังไม่มีรหัส</p>'}
 <script>
@@ -146,8 +158,11 @@ async function copyLink(btn, t) {
 }
 function shareLink(t) { navigator.share({ title: 'Numora', text: 'ลิงก์เชิญเข้าใช้แอป Numora (ใช้ได้เฉพาะคุณ)', url: t }).catch(() => {}); }
 if (navigator.share) document.querySelectorAll('.sharebtn').forEach(b => (b.style.display = 'inline-block'));
+// กันกดซ้ำ: กดแล้วปุ่มในฟอร์มนั้นจะล็อกและขึ้น "กำลังทำ…" จนหน้าโหลดใหม่
+document.querySelectorAll('form[action="/admin/action"]').forEach(f => f.addEventListener('submit', () => { f.querySelectorAll('button').forEach(b => { b.disabled = true; b.textContent = 'กำลังทำ…'; }); }));
+if (history.replaceState) history.replaceState(null, '', '/admin'); // กดรีเฟรชแล้วไม่ส่งคำสั่งซ้ำ
 </script>
-<p class="small" style="margin-top:14px">ส่ง "ลิงก์เชิญ" ให้เพื่อนทีละคน (มีรหัสอยู่ในลิงก์แล้ว) · ถ้าเพื่อนส่งต่อหลังใช้ครบจำนวนเครื่อง คนอื่นจะเปิดไม่ได้</p>
+<p class="small" style="margin-top:14px">ส่ง "ลิงก์เชิญ" ให้เพื่อนทีละคน (มีรหัสอยู่ในลิงก์แล้ว) · 1 ลิงก์ใช้ได้ 1 เครื่อง ถ้าส่งต่อ คนอื่นจะเปิดไม่ได้ · ยกเลิก/ลบแล้ว เครื่องของเพื่อนจะถูกปิดภายในไม่เกิน 1 นาที</p>
 </div></div>`));
 }
 const adminLogin = (err = '') => html(SHELL('Numora — ผู้ดูแล', `<div class="card"><div class="in"><h1>ผู้ดูแล</h1><p>ใส่รหัสผู้ดูแลเพื่อจัดการรหัสเชิญ</p>
@@ -174,23 +189,28 @@ async function admin(req, env, url) {
   if (!a || !a.admin || a.exp < Date.now()) return adminLogin();
   if (p === '/admin/action' && req.method === 'POST') {
     const form = await req.formData(), act = form.get('a'), raw = normCode(form.get('code'));
-    let msg = '';
+    let msg = ''; const override = {}; // ผลที่เพิ่งเปลี่ยน — แสดงทันทีโดยไม่ต้องรอ KV
     if (act === 'create') {
-      const n = Math.min(10, Math.max(1, parseInt(form.get('n')) || 1)), max = Math.min(5, Math.max(1, parseInt(form.get('max')) || DEFAULT_MAX));
+      const n = Math.min(10, Math.max(1, parseInt(form.get('n')) || 1)), max = DEFAULT_MAX;
       const name = String(form.get('name') || '').slice(0, 60), made = [];
-      for (let i = 0; i < n; i++) { let c; do { c = newCode(); } while (await getCode(env, c)); await putCode(env, c, { name: n > 1 && name ? `${name} #${i + 1}` : name, created: Date.now(), max, uses: [], revoked: false }); made.push(fmtCode(c)); }
-      msg = `สร้างแล้ว: ${made.join(', ')}`;
+      for (let i = 0; i < n; i++) {
+        let c; do { c = newCode(); } while (await getCode(env, c));
+        const rec = { name: n > 1 && name ? `${name} #${i + 1}` : name, created: Date.now() + i, max, uses: [], revoked: false };
+        await putCode(env, c, rec); override[c] = rec; made.push(c);
+      }
+      await writeIndex(env, [...(await readIndex(env)), ...made]);
+      msg = `สร้างแล้ว: ${made.map(fmtCode).join(', ')}`;
     } else if (raw.length === 8) {
       const rec = await getCode(env, raw);
       if (rec) {
-        if (act === 'revoke') { rec.revoked = true; await putCode(env, raw, rec); msg = `ยกเลิก ${fmtCode(raw)} แล้ว (มีผลภายใน 1 นาที)`; }
-        if (act === 'restore') { rec.revoked = false; await putCode(env, raw, rec); msg = `เปิดใช้ ${fmtCode(raw)} อีกครั้งแล้ว`; }
-        if (act === 'reset') { rec.uses = []; await putCode(env, raw, rec); msg = `ล้างเครื่องของ ${fmtCode(raw)} แล้ว (เครื่องเดิมต้องใส่รหัสใหม่)`; }
-        if (act === 'delete') { await env.CODES.delete('code:' + raw); msg = `ลบ ${fmtCode(raw)} แล้ว`; }
-        activeCache.clear();
-      }
+        if (act === 'revoke') { rec.revoked = true; await putCode(env, raw, rec); override[raw] = rec; msg = `ยกเลิก ${fmtCode(raw)} แล้ว`; }
+        if (act === 'restore') { rec.revoked = false; await putCode(env, raw, rec); override[raw] = rec; msg = `เปิดใช้ ${fmtCode(raw)} อีกครั้งแล้ว`; }
+        if (act === 'reset') { rec.uses = []; await putCode(env, raw, rec); override[raw] = rec; msg = `ล้างเครื่องของ ${fmtCode(raw)} แล้ว (เครื่องเดิมต้องใส่รหัสใหม่)`; }
+        if (act === 'delete') { await env.CODES.delete('code:' + raw); override[raw] = null; await writeIndex(env, (await readIndex(env)).filter(r => r !== raw)); msg = `ลบ ${fmtCode(raw)} แล้ว`; }
+      } else if (act === 'delete') { override[raw] = null; await writeIndex(env, (await readIndex(env)).filter(r => r !== raw)); msg = `ลบ ${fmtCode(raw)} แล้ว`; }
+      activeCache.clear();
     }
-    return adminPage(env, url, msg);
+    return adminPage(env, url, msg, override);
   }
   return adminPage(env, url);
 }
