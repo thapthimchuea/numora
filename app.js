@@ -262,7 +262,90 @@ function horoProfile(p) {
     const life = horoReduce(String(y) + pad2(m) + pad2(dd));
     return { nick: (p.nick || "").trim() || "คุณ", planet, pos, animal, sign, life, bm: m, bdd: dd, seed: `${p.birth}|${p.time || ""}|${p.nick || ""}` };
 }
+// ===== ดวงตามช่วงเวลา (ยามอัฏฐกาล เทียบดาวประจำตัว) · ตามตำราไทย วันใหม่เริ่มตอนเช้า 05:00 =====
+const horoToday = () => { const n = new Date(Date.now() - 5 * 36e5); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); };
+const horoNowMin = () => { const n = new Date(); let m = n.getHours() * 60 + n.getMinutes(); if (m < 300) m += 1440; return m; };
+const HORO_PERIODS = [["เช้าตรู่", "🌅", 300, 480], ["สาย", "☀️", 480, 660], ["กลางวัน", "🌞", 660, 840], ["บ่าย", "🌤️", 840, 1020], ["เย็น", "🌇", 1020, 1140], ["ค่ำ", "🌆", 1140, 1320], ["ดึก", "🌙", 1320, 1500], ["หลังเที่ยงคืน", "🌌", 1500, 1740]];
+const HORO_YAM_SEQ = [1, 6, 4, 2, 7, 5, 3];
+const HORO_PER_FX = { ศรี: 1.2, เดช: 1, มนตรี: 1, บริวาร: 0.5, อายุ: 0.3, มูละ: 0.3, อุตสาหะ: 0, กาลกิณี: -1.5 };
+// [ไม่ค่อยดี, กลาง ๆ, ดี] · ควรทำ · ควรเลี่ยง
+const HORO_PER_TXT = {
+    บริวาร: [["อาจมีคนพูดไม่เข้าหู ฟังผ่าน ๆ ไปก่อน", "อย่าเพิ่งรับปากใครเรื่องใหญ่"], ["คนรอบตัวปกติดี ทักทายกันนิดหน่อยก็พอ", "ช่วงนี้เหมาะตอบแชตที่ค้างไว้"], ["คนรอบตัวพร้อมช่วย ขอความช่วยเหลือได้เลย", "คุยกับเพื่อนหรือครอบครัวแล้วสบายใจ"], ["ทักคนที่ไม่ได้คุยนาน", "ชวนคนใกล้ตัวกินข้าว"], ["เถียงเรื่องไม่จำเป็น", "ให้ยืมเงิน"]],
+    อายุ: [["เหนื่อยง่ายกว่าปกติ หาเวลาพักสักนิด", "อารมณ์ขึ้นลงง่าย หายใจลึก ๆ ก่อนพูด"], ["แรงพอใช้ ทำงานเบา ๆ ได้สบาย", "ดื่มน้ำบ้าง จะสดชื่นขึ้น"], ["ร่างกายสดชื่น ทำอะไรก็คล่อง", "อารมณ์ดี ยิ้มง่าย"], ["ยืดเส้นยืดสาย", "ดื่มน้ำเยอะ ๆ"], ["ฝืนทำงานหนัก", "กินของมันของทอด"]],
+    เดช: [["อย่าใช้อารมณ์กับงาน ใจเย็นจะได้งานกว่า", "งานอาจมีสะดุด เช็กให้ดีก่อนส่ง"], ["ทำงานตามแผนไปเรื่อย ๆ ได้ผลดี", "เคลียร์งานเล็ก ๆ ให้จบในช่วงนี้"], ["งานเดินเร็ว พูดอะไรคนก็ฟัง", "เหมาะตัดสินใจเรื่องงานหรือสั่งงาน"], ["คุยงานสำคัญ", "เสนอไอเดีย"], ["สั่งงานแบบใช้อารมณ์", "รับงานเกินตัว"]],
+    ศรี: [["เงินออกง่าย คิดก่อนกดจ่าย", "อย่าเพิ่งลงทุนหรือเสี่ยงช่วงนี้"], ["การเงินปกติ ใช้ตามแผนได้", "มีโชคเล็ก ๆ น้อย ๆ ลองสังเกตดู"], ["โชคดี มีเรื่องให้ยิ้ม อาจได้ของหรือส่วนลด", "เรื่องเงินลื่นไหล เหมาะซื้อขายหรือเจรจา"], ["ซื้อของที่ตั้งใจไว้", "คุยเรื่องเงิน"], ["ซื้อของตามอารมณ์", "เสี่ยงโชคหนัก ๆ"]],
+    มูละ: [["ระวังของเสียหรือของหาย เก็บให้เป็นที่", "อย่าเพิ่งเซ็นเอกสารสำคัญ"], ["เหมาะจดรายรับรายจ่าย หรือจัดของในบ้าน", "เก็บเงินได้ทีละนิด ค่อย ๆ สะสม"], ["เหมาะจัดการเรื่องบ้านหรือเงินเก็บ ได้ผลดี", "เรื่องทรัพย์สินและเอกสารราบรื่น"], ["จัดบ้านหรือโต๊ะทำงาน", "ออมเงินสักนิด"], ["วางของมีค่าทิ้งไว้", "ทำสัญญาใหญ่"]],
+    อุตสาหะ: [["ทำเยอะแต่เหนื่อยเปล่า เลือกทำแค่เรื่องสำคัญ", "ระวังพลาดเพราะรีบ"], ["ค่อย ๆ ทำไปทีละขั้น ไม่ต้องรีบ", "งานเยอะหน่อยแต่รับมือได้"], ["ขยันแล้วเห็นผล งานที่ค้างจะเสร็จเร็ว", "มีพลังลุย ทำเรื่องยาก ๆ ได้"], ["ทำงานที่ค้างให้จบ", "ออกกำลังกาย"], ["ทำหลายอย่างพร้อมกัน", "อดนอน"]],
+    มนตรี: [["ผู้ใหญ่อาจไม่ว่าง ยังไม่ต้องรีบขอ", "อย่าเพิ่งเถียงหัวหน้า เก็บไว้คุยทีหลัง"], ["ฟังคำแนะนำคนมีประสบการณ์ แล้วจะดี", "เหมาะเรียนรู้เรื่องใหม่ ๆ"], ["ผู้ใหญ่เมตตา ขอคำแนะนำหรือขอความช่วยเหลือได้", "มีคนคอยหนุน ทำอะไรก็ง่าย"], ["ขอคำปรึกษา", "ไหว้พระหรือทำบุญ"], ["เถียงผู้ใหญ่", "ตัดสินใจคนเดียว"]],
+    กาลกิณี: [["ช่วงควรระวังที่สุดของวัน อยู่เฉย ๆ ไว้ก่อน", "เลี่ยงเรื่องสำคัญ เลื่อนไปช่วงอื่นได้จะดี"], ["ช่วงควรระวัง ทำอะไรช้าลงหน่อย", "เช็กของ เช็กงานให้รอบคอบ"], ["ช่วงไม่ค่อยเด่น แต่ระวังนิดหน่อยก็ผ่านไปได้ดี", "ทำเรื่องปกติได้ ไม่ต้องเสี่ยงอะไรใหม่"], ["ทำเรื่องง่าย ๆ", "สวดมนต์หรือนั่งสมาธิ"], ["ตัดสินใจเรื่องใหญ่", "เดินทางไกลถ้าไม่จำเป็น"]]
+};
+const HORO_NIGHT_TXT = [
+    ["อาจคิดมากจนนอนไม่หลับ ลองหายใจลึก ๆ", "อย่าตอบแชตตอนอารมณ์ไม่ดีช่วงนี้", "ระวังนอนดึกแล้วพรุ่งนี้เพลีย", "เลี่ยงออกไปข้างนอกตอนดึก"],
+    ["ถึงเวลาพักแล้ว วางมือถือลงสักหน่อย", "ร่างกายอยากพัก นอนเร็วหน่อยจะดี", "ช่วงเงียบ ๆ เหมาะทบทวนเรื่องวันนี้", "คืนนี้ปกติ ไม่มีอะไรน่าห่วง"],
+    ["คืนนี้ใจสงบ นอนหลับสบาย", "ถ้ายังไม่นอน ช่วงนี้คิดอะไรออกง่าย", "ฝันดีคืนนี้ อาจได้ไอเดียดี ๆ ตอนตื่น", "จิตใจนิ่ง เหมาะสวดมนต์ก่อนนอน"],
+    ["นอนให้พอ", "สวดมนต์หรือฟังเพลงเบา ๆ", "จดสิ่งที่อยากทำพรุ่งนี้", "ปิดไฟ วางมือถือ"],
+    ["เล่นมือถือนาน", "ตัดสินใจเรื่องสำคัญตอนดึก", "กินมื้อดึก", "คิดเรื่องเครียด"]
+];
+const horoHM = m => `${pad2(Math.floor(m / 60) % 24)}:${pad2(m % 60)}`;
+function horoPeriods(P, D) {
+    const seed = P.seed + "|" + horoKey(D.date) + "|per";
+    const wd = D.date.getDay(), dp = wd === 0 ? 1 : wd + 1, i0 = HORO_YAM_SEQ.indexOf(dp);
+    return HORO_PERIODS.map(([name, emoji, from, to], i) => {
+        const mid = (from + to) / 2;
+        const planet = mid >= 360 && mid < 1080 ? HORO_YAM_SEQ[(i0 + Math.floor((mid - 360) / 90)) % 7] : HORO_YAM_SEQ[(i0 + 4 + Math.floor((mid - 1080) / 90)) % 7];
+        const pos = HORO_POS.find(n => P.pos[n] === planet) || "บริวาร";
+        const score = Math.max(1, Math.min(5, Math.round(3 + (D.total - 3) * 0.5 + HORO_PER_FX[pos] + (horoRnd(seed, "s" + i) - 0.5) * 1.2)));
+        const lvl = score <= 2 ? 0 : score === 3 ? 1 : 2;
+        const night = i >= 6;
+        const B = night ? HORO_NIGHT_TXT : HORO_PER_TXT[pos];
+        const goodD = [P.pos["ศรี"], D.pd, P.pos["เดช"]];
+        return {
+            i, name, emoji, from, to, range: `${horoHM(from)}–${horoHM(to)}`, planet, pos, score, night,
+            text: horoPick(B[lvl], seed, "t" + i), todo: horoPick(B[3], seed, "d" + i), avoid: horoPick(B[4], seed, "a" + i),
+            num: pad2((planet % 10) * 10 + goodD[Math.floor(horoRnd(seed, "n" + i) * 3)] % 10)
+        };
+    });
+}
+const horoCurPeriod = D => { const m = horoNowMin(); return D.periods.find(p => m >= p.from && m < p.to) || D.periods[0]; };
+function HoroPeriodCard({ P, D }) {
+    const [, setTick] = useState(0);
+    const [sel, setSel] = useState(null);
+    useEffect(() => { const id = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(id); }, []);
+    const m = horoNowMin();
+    const isToday = horoKey(D.date) === horoKey(horoToday());
+    const ci = isToday ? D.periods.findIndex(p => m >= p.from && m < p.to) : -1;
+    const idx = sel !== null ? sel : ci >= 0 ? ci : 0;
+    const p = D.periods[idx];
+    const left = ci >= 0 ? D.periods[ci].to - m : 0;
+    const nextName = ci >= 0 ? (ci < 7 ? D.periods[ci + 1].name : "เช้าตรู่ (วันใหม่)") : "";
+    const tone = s => s >= 4 ? { background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.45)" } : s <= 2 ? { background: "rgba(245,158,11,.12)", border: "1px solid rgba(245,158,11,.45)" } : { background: "rgba(39,39,42,.6)", border: "1px solid #3f3f46" };
+    return React.createElement("div", { className: "glass rounded-2xl p-4", style: { boxShadow: "0 0 0 1px rgba(56,189,248,.22), 0 0 26px rgba(56,189,248,.06)" } },
+        React.createElement(SectionTitle, { icon: "Clock", className: "glow-cyan" }, "ดวงตามช่วงเวลา"),
+        React.createElement("div", { className: "rounded-xl px-3 py-3", style: tone(p.score) },
+            React.createElement("div", { className: "flex items-center justify-between gap-2" },
+                React.createElement("p", { className: "text-[16px] font-bold text-zinc-100" }, p.emoji, " ช่วง", p.name, " ", React.createElement("span", { className: "text-[12px] font-normal text-zinc-400" }, p.range, " น.")),
+                idx === ci ? React.createElement("span", { className: "text-[11px] rounded-full px-2 py-0.5 border border-cyan-400/40 bg-cyan-500/10 text-cyan-100" }, "ตอนนี้") : React.createElement("button", { onClick: () => setSel(null), className: "text-[11.5px] text-zinc-400 underline" }, "กลับช่วงปัจจุบัน")),
+            React.createElement("p", { className: "text-[15px] mt-1" }, horoStars(p.score)),
+            React.createElement("p", { className: "text-[14.5px] text-zinc-200 mt-1.5 leading-relaxed" }, p.text),
+            React.createElement("p", { className: "text-[13px] text-zinc-300 mt-2" }, "✅ ควรทำ: ", p.todo),
+            React.createElement("p", { className: "text-[13px] text-zinc-300 mt-0.5" }, "⛔ ควรเลี่ยง: ", p.avoid),
+            React.createElement("p", { className: "text-[13px] text-zinc-300 mt-0.5" }, "🍀 เลขนำโชคช่วงนี้: ", React.createElement("b", { className: "digi text-[16px] text-amber-200" }, p.num))),
+        ci >= 0 && React.createElement("p", { className: "text-[12.5px] text-zinc-400 mt-2" }, "⏳ อีก ", left >= 60 ? `${Math.floor(left / 60)} ชม. ` : "", left % 60, " นาที เข้าช่วง", nextName),
+        React.createElement("div", { className: "grid grid-cols-4 gap-1.5 mt-3" }, D.periods.map((q, k) => React.createElement("button", { key: k, onClick: () => setSel(k === ci ? null : k), className: "rounded-lg py-1.5 text-center", style: { ...tone(q.score), outline: k === idx ? "2px solid #e4e4e7" : "none", opacity: ci >= 0 && k < ci && k !== idx ? 0.55 : 1 } },
+            React.createElement("p", { className: "text-[11.5px] text-zinc-200" }, q.emoji, " ", q.name),
+            React.createElement("p", { className: "text-[10px] text-zinc-500" }, q.range),
+            React.createElement("p", { className: "text-[12px] text-zinc-100 font-bold" }, "⭐".repeat(q.score))))),
+        React.createElement("p", { className: "text-[11px] text-zinc-500 mt-2.5 leading-snug" }, "แตะช่วงอื่นเพื่อดูล่วงหน้า · คำนวณตามหลักยามอัฏฐกาล เทียบกับดาวประจำตัวคุณ · ตามตำราไทย วันใหม่เริ่มตอนเช้า (05:00)"));
+}
+
 function horoDay(P, date) {
+    const D = horoDay0(P, date);
+    D.periods = horoPeriods(P, D);
+    const b = D.periods.slice(0, 6).reduce((a, x) => x.score > a.score ? x : a);
+    D.slot = `${b.name} ${b.range}`;
+    return D;
+}
+function horoDay0(P, date) {
     const wd = date.getDay(), todayPlanet = wd === 0 ? 1 : wd + 1;
     const posName = HORO_POS.find(n => P.pos[n] === todayPlanet) || "บริวาร";
     const dayBranch = (horoJdn(date) + 1) % 12;
@@ -321,7 +404,7 @@ function HoroPage() {
     const [why, setWhy] = useState(false);
     const [tarot, setTarot] = useStore(horoTarotStore);
     const P = useMemo(() => horoProfile(raw), [raw]);
-    const today = new Date();
+    const today = horoToday();
     const D = useMemo(() => P ? horoDay(P, today) : null, [P, horoKey(today)]);
     const week = useMemo(() => P ? Array.from({ length: 7 }, (_, i) => { const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i); return horoDay(P, d); }) : [], [P, horoKey(today)]);
     const month = useMemo(() => { if (!P) return []; const y = today.getFullYear(), m = today.getMonth(), n = new Date(y, m + 1, 0).getDate(); return Array.from({ length: n }, (_, i) => horoDay(P, new Date(y, m, i + 1))); }, [P, horoKey(today)]);
@@ -353,6 +436,7 @@ function HoroPage() {
             React.createElement("button", { onClick: () => setWhy(!why), className: "text-[12px] text-zinc-500 underline mt-3" }, why ? "ซ่อน" : "ทำไมถึงได้ดวงนี้?"),
             why && React.createElement("ul", { className: "text-[12px] text-zinc-400 mt-1.5 space-y-1" }, D.why.map((w, i) => React.createElement("li", { key: i }, "• ", w))),
             React.createElement(ShareBar, { text: () => horoShareText(P, D) })),
+        React.createElement(HoroPeriodCard, { P, D }),
         React.createElement(HoroLuckyCard, { P, D }),
         React.createElement("div", { className: "glass rounded-2xl p-4" },
             React.createElement(SectionTitle, { icon: "Sparkles", className: "glow-violet" }, "ไพ่ทาโรต์ประจำวัน"),
@@ -427,12 +511,12 @@ function HoroLuckyCard({ P, D }) {
         React.createElement(ShareBar, { text }),
         React.createElement("p", { className: "text-[11px] text-zinc-500 mt-2 leading-snug" }, "เลขมงคลมาจากดวงของคุณ (ดาวศรี ดาวเดช ดาวมนตรี และเลขประจำวัน) ไม่ได้มาจากสถิติ · เพื่อความบันเทิง"));
 }
-const horoShareText = (P, D) => `🔮 ดวงวันนี้ของ${P.nick} ${horoStars(Math.round(D.total))}\n` + HORO_CAT.map(([k, name, ic], i) => `${ic} ${name}: ${D.lines[i]}`).join("\n") + `\n👉 ${D.tip}\n🎨 สีมงคล: ${D.lucky.color}`;
+const horoShareText = (P, D) => `🔮 ดวงวันนี้ของ${P.nick} ${horoStars(Math.round(D.total))}\n` + HORO_CAT.map(([k, name, ic], i) => `${ic} ${name}: ${D.lines[i]}`).join("\n") + `\n⏰ ช่วง${horoCurPeriod(D).name}: ${horoCurPeriod(D).text}\n👉 ${D.tip}\n🎨 สีมงคล: ${D.lucky.color}`;
 
 function HoroMiniCard({ onOpen }) {
     const [raw] = useStore(horoStore);
     const P = useMemo(() => horoProfile(raw), [raw]);
-    const today = new Date();
+    const today = horoToday();
     const D = useMemo(() => P ? horoDay(P, today) : null, [P, horoKey(today)]);
     return React.createElement("button", { onClick: onOpen, className: "w-full text-left glass rounded-2xl p-4", style: { border: "1px solid rgba(244,114,182,.35)" } },
         !P ? React.createElement("div", { className: "flex items-center gap-3" }, React.createElement("span", { style: { fontSize: 28 } }, "🔮"),
@@ -440,6 +524,7 @@ function HoroMiniCard({ onOpen }) {
             : React.createElement("div", null,
                 React.createElement("div", { className: "flex items-center justify-between" }, React.createElement("p", { className: "text-[14px] font-bold text-zinc-100" }, "🔮 ดวงวันนี้ของ", P.nick), React.createElement("span", { className: "text-[13px]" }, horoStars(Math.round(D.total)))),
                 React.createElement("p", { className: "text-[13.5px] text-zinc-300 mt-1.5 leading-relaxed" }, D.lines[[...D.scores].map((s, i) => [s, i]).sort((a, b) => b[0] - a[0])[0][1]]),
+                (() => { const c = horoCurPeriod(D); return React.createElement("p", { className: "text-[12.5px] text-cyan-100 mt-1.5 leading-snug" }, "⏰ ตอนนี้ช่วง", c.name, " ", "⭐".repeat(c.score), " · ", c.text); })(),
                 React.createElement("p", { className: "text-[12.5px] text-zinc-400 mt-1.5 flex items-center gap-2" }, "สีมงคล ", React.createElement("span", { style: { width: 12, height: 12, borderRadius: 99, background: D.lucky.hex, display: "inline-block" } }), D.lucky.color, React.createElement("span", { className: "ml-auto text-zinc-500" }, "ดูดวงเต็ม ›"))));
 }
 
