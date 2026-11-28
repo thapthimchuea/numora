@@ -437,6 +437,7 @@ function HoroPage() {
             React.createElement("button", { onClick: () => setWhy(!why), className: "text-[12px] text-zinc-500 underline mt-3" }, why ? "ซ่อน" : "ทำไมถึงได้ดวงนี้?"),
             why && React.createElement("ul", { className: "text-[12px] text-zinc-400 mt-1.5 space-y-1" }, D.why.map((w, i) => React.createElement("li", { key: i }, "• ", w))),
             React.createElement(ShareBar, { text: () => horoShareText(P, D) })),
+        React.createElement(HoroAspectsCard, { P, D }),
         React.createElement(HoroPeriodCard, { P, D }),
         React.createElement(HoroLuckyCard, { P, D }),
         React.createElement("div", { className: "glass rounded-2xl p-4" },
@@ -513,7 +514,7 @@ function HoroLuckyCard({ P, D }) {
         React.createElement(ShareBar, { text }),
         React.createElement("p", { className: "text-[11px] text-zinc-500 mt-2 leading-snug" }, "เลขมงคลมาจากดวงของคุณ (ดาวศรี ดาวเดช ดาวมนตรี และเลขประจำวัน) ไม่ได้มาจากสถิติ · เพื่อความบันเทิง"));
 }
-const horoShareText = (P, D) => `${horoLevel(D.total).emoji} ${horoLevel(D.total).share}\n🔮 ดวงวันนี้ของ${P.nick} ${horoStars(Math.round(D.total))}\n` + HORO_CAT.map(([k, name, ic], i) => `${ic} ${name}: ${D.lines[i]}`).join("\n") + `\n⏰ ช่วง${horoCurPeriod(D).name}: ${horoCurPeriod(D).text}\n👉 ${D.tip}\n🎨 สีมงคล: ${D.lucky.color}`;
+const horoShareText = (P, D) => `${horoLevel(D.total).emoji} ${horoLevel(D.total).share}\n🔮 ดวงวันนี้ของ${P.nick} ${horoStars(Math.round(D.total))}\n` + HORO_CAT.map(([k, name, ic], i) => `${ic} ${name}: ${D.lines[i]}`).join("\n") + (() => { const H = horoAspHi(P, D, horoAspects(P, D)); return (H.good.length ? `\n🌟 เด่นเรื่อง: ${H.good.map(a => a.name).join(", ")}` : "") + (H.bad.length ? `\n⚠️ ระวังเรื่อง: ${H.bad.map(a => a.name).join(", ")}` : ""); })() + `\n⏰ ช่วง${horoCurPeriod(D).name}: ${horoCurPeriod(D).text}\n👉 ${D.tip}\n🎨 สีมงคล: ${D.lucky.color}`;
 
 // ===== เช็คเลขในใจ: เทียบกับทุกสูตรของงวดถัดไป (ติด 10 อันดับแรก = ตรงมาก · 11–30 = ตรง) =====
 let numCheckFocus = false;
@@ -617,6 +618,83 @@ const HORO_LEVELS = [
 ];
 const horoLevel = t => HORO_LEVELS.find(l => t >= l.min - 1e-9) || HORO_LEVELS[4];
 const horoBest = D => { const c = horoCurPeriod(D), r = D.periods.filter(x => x.i >= c.i && x.i < 6); return r.length ? r.reduce((a, x) => x.score > a.score ? x : a) : null; };
+// ===== ดวงรายด้าน 17 ด้าน (ผูกกับตำแหน่งทักษา + ดวงทั้งวันเป็นฐาน) =====
+const horoPinStore = createStore("numora.horoPins.v1", []);
+// [ไม่ค่อยดี, กลาง ๆ, ดี]
+const HORO_ASP_TXT = {
+    biz: [["ลูกค้าเงียบกว่าปกติ ใช้เวลานี้เตรียมของให้พร้อม", "ระวังตกลงราคาเร็วเกินไป คิดต้นทุนให้ดี", "อย่าเพิ่งขยายกิจการ รอจังหวะก่อน", "อาจเจอลูกค้าเรื่องมาก ใจเย็นแล้วจะผ่านไปได้"], ["ขายได้เรื่อย ๆ ตามปกติ", "เหมาะเช็กสต็อกและจัดร้านให้น่าดู", "ลูกค้าเก่ากลับมาซื้อ ดูแลให้ดี", "ลองโพสต์ขายออนไลน์เพิ่ม อาจได้ลูกค้าใหม่"], ["ค้าขายคล่อง มีลูกค้าเข้ามาไม่ขาด", "เจรจาธุรกิจได้ผลดี ปิดดีลได้", "ไอเดียขายของใหม่ ๆ ใช้ได้จริง ลองเลย", "มีคนบอกต่อร้านคุณ ชื่อเสียงดีขึ้น"]],
+    invest: [["ยังไม่ควรตัดสินใจลงทุนก้อนใหญ่ รอให้ใจนิ่งก่อน", "อย่าตามกระแสหรือฟังข่าวลือ", "ระวังคนชวนลงทุนที่ฟังดีเกินจริง", "เก็บเงินสดไว้ก่อนจะสบายใจกว่า"], ["เหมาะศึกษาข้อมูล ยังไม่ต้องรีบตัดสินใจ", "ทบทวนแผนการออมของตัวเองได้ดี", "ค่อย ๆ ออมทีละนิดดีกว่าเสี่ยงทีเดียว", "ฟังความเห็นคนมีประสบการณ์ก่อนตัดสินใจ"], ["มองเห็นโอกาสชัดขึ้น แต่ยังควรศึกษาให้รอบคอบ", "เหมาะวางแผนการเงินระยะยาว", "ข้อมูลที่ได้วันนี้มีประโยชน์ จดไว้ใช้ทีหลัง", "จังหวะดีสำหรับเริ่มออมเงินอย่างมีแผน"]],
+    study: [["สมาธิหลุดง่าย อ่านทีละน้อยแต่บ่อย ๆ", "อาจลืมงานที่ต้องส่ง เช็กตารางให้ดี", "เรื่องยากยังไม่เข้าหัว พักแล้วค่อยกลับมาอ่าน", "อย่าอ่านโต้รุ่ง นอนให้พอดีกว่า"], ["เรียนได้ตามปกติ ทบทวนบทเก่าจะช่วยได้มาก", "ถามครูหรือเพื่อนในเรื่องที่ไม่เข้าใจ", "เหมาะจดสรุปสั้น ๆ ไว้อ่านทีหลัง", "ค่อย ๆ ทำการบ้านให้เสร็จทีละอย่าง"], ["หัวไว เรียนอะไรก็เข้าใจเร็ว", "เหมาะสอบหรือนำเสนองาน ทำได้ดี", "ครูหรือผู้ใหญ่เอ็นดู ได้คำแนะนำดี ๆ", "เริ่มเรียนเรื่องใหม่วันนี้ จะไปได้ไกล"]],
+    family: [["อาจมีเรื่องกระทบกระทั่งในบ้าน พูดกันเบา ๆ", "คนในบ้านอารมณ์ไม่ดี อย่าเพิ่งถือสา", "ระวังเรื่องเงินในครอบครัว คุยกันให้ชัด", "ผู้ใหญ่ในบ้านอาจต้องการการดูแลเพิ่ม"], ["บ้านอบอุ่นตามปกติ", "โทรหาพ่อแม่หรือญาติสักหน่อย", "ช่วยงานบ้านนิดหน่อย บรรยากาศจะดีขึ้น", "กินข้าวพร้อมหน้ากันจะสบายใจ"], ["ครอบครัวสุขสันต์ มีเรื่องให้ยิ้มด้วยกัน", "คนในบ้านคอยสนับสนุนคุณเต็มที่", "เหมาะพาครอบครัวไปเที่ยวหรือกินข้าวนอกบ้าน", "อาจมีข่าวดีจากญาติพี่น้อง"]],
+    friend: [["อาจมีเพื่อนเข้าใจผิด อธิบายใจเย็น ๆ", "อย่าเล่าความลับให้ใครฟังวันนี้", "ระวังเพื่อนชวนไปทางที่ไม่ดี", "อย่าให้เพื่อนยืมของสำคัญ"], ["เพื่อนสนิทยังอยู่ข้าง ๆ เหมือนเดิม", "ทักเพื่อนเก่าดูบ้าง จะได้คุยสนุก", "นัดเพื่อนกินกาแฟสั้น ๆ ก็ดี", "ช่วยเพื่อนเรื่องเล็ก ๆ แล้วจะได้น้ำใจกลับมา"], ["เพื่อนช่วยเหลือดี มีอะไรขอได้เลย", "ได้เจอเพื่อนใหม่ที่คุยถูกคอ", "นัดเพื่อนวันนี้สนุกมาก", "เพื่อนอาจนำโชคหรือโอกาสดีมาให้"]],
+    social: [["พูดอะไรระวังคนตีความผิด", "เลี่ยงดราม่าในโซเชียล อย่าโพสต์ตอนอารมณ์ไม่ดี", "งานสังสรรค์วันนี้อาจเหนื่อยกว่าสนุก", "ระวังคนพูดลับหลัง ทำดีของเราไปก็พอ"], ["คนรอบตัวเป็นมิตรดี", "ทักทายคนใหม่ ๆ ได้ไม่เสียหาย", "เหมาะร่วมกิจกรรมเล็ก ๆ ในชุมชน", "โพสต์เรื่องดี ๆ คนจะชอบ"], ["มีเสน่ห์ เข้าสังคมแล้วคนชอบ", "ได้รู้จักคนที่ช่วยคุณได้ในอนาคต", "งานเลี้ยงหรืองานสังสรรค์วันนี้ดีมาก", "คำพูดของคุณมีน้ำหนัก คนรับฟัง"]],
+    mind: [["อาจคิดมากหรือหงุดหงิดง่าย หายใจลึก ๆ", "อย่าเก็บเรื่องเครียดไว้คนเดียว ลองเล่าให้คนสนิทฟัง", "ใจไม่ค่อยนิ่ง เลี่ยงตัดสินใจเรื่องสำคัญ", "ลดเวลาดูข่าวหรือโซเชียลลงหน่อย"], ["อารมณ์ปกติดี", "หาเพลงเพราะ ๆ ฟังจะสบายใจขึ้น", "เดินเล่นสั้น ๆ จะช่วยให้หัวโล่ง", "ลองนึกถึงเรื่องดี ๆ ที่เจอวันนี้สัก 3 เรื่อง"], ["ใจสงบ มองโลกในแง่ดี", "มีกำลังใจเต็มเปี่ยม", "อารมณ์ดีทั้งวัน คนรอบตัวพลอยสดชื่น", "รู้สึกมั่นใจในตัวเองมากขึ้น"]],
+    rest: [["พักไม่ค่อยเต็มที่ ลองนอนเร็วขึ้นคืนนี้", "งานแทรกเวลาพัก แบ่งเวลาให้ชัด", "อย่าเล่นมือถือก่อนนอนนาน", "ร่างกายบอกให้พัก อย่าฝืน"], ["หาเวลาพักสั้น ๆ ระหว่างวันได้", "งีบสั้น ๆ 15 นาทีจะสดชื่นขึ้น", "อาบน้ำอุ่นก่อนนอนจะหลับสบาย", "พักสายตาจากจอบ้าง"], ["นอนหลับสนิท ตื่นมาสดใส", "เหมาะไปพักผ่อนหรือนวดผ่อนคลาย", "มีเวลาว่างได้ทำสิ่งที่ชอบ", "วันสบาย ๆ ได้ชาร์จพลังเต็มที่"]],
+    hobby: [["ทำงานอดิเรกแล้วอาจไม่ได้ดั่งใจ ทำเล่น ๆ ไม่ต้องจริงจัง", "ระวังซื้ออุปกรณ์งานอดิเรกเกินงบ", "ยังไม่ใช่วันเริ่มของใหม่ ทำของเดิมไปก่อน", "เวลาว่างน้อย เก็บไว้ทำวันหลัง"], ["ได้ทำสิ่งที่ชอบนิดหน่อยก็สดชื่น", "ลองหาไอเดียใหม่จากคลิปหรือหนังสือ", "เหมาะจัดเก็บของสะสมให้เป็นระเบียบ", "ชวนเพื่อนทำงานอดิเรกด้วยกันจะสนุกขึ้น"], ["ฝีมือพัฒนา ทำออกมาได้สวย", "เหมาะเริ่มงานอดิเรกใหม่", "งานอดิเรกอาจกลายเป็นรายได้เสริม", "มีแรงบันดาลใจเต็มที่ ลงมือเลย"]],
+    travel: [["เดินทางเผื่อเวลา อาจเจอรถติดหรือล่าช้า", "เช็กของให้ครบก่อนออกจากบ้าน", "ขับรถระวัง อย่าใจร้อน", "ถ้าไม่จำเป็น เลื่อนการเดินทางไกลไปก่อน"], ["เดินทางใกล้ ๆ ได้ราบรื่น", "เหมาะวางแผนทริปไว้ล่วงหน้า", "ไปไหนมาไหนตามปกติ ไม่มีอะไรน่าห่วง", "ลองเปลี่ยนเส้นทางใหม่ อาจเจอที่น่าสนใจ"], ["เดินทางสะดวก ไปไหนก็ราบรื่น", "เหมาะเที่ยวหรือออกต่างจังหวัด", "การเดินทางนำโชคหรือโอกาสดีมาให้", "ได้เจอเรื่องดี ๆ ระหว่างทาง"]],
+    home: [["ระวังของในบ้านเสียหรือชำรุด", "เลี่ยงย้ายบ้านหรือทำสัญญาเช่าวันนี้", "บ้านรกใจก็รก ลองเก็บสักมุม", "เช็กไฟและแก๊สก่อนออกจากบ้าน"], ["บ้านสงบดีตามปกติ", "เหมาะทำความสะอาดหรือจัดบ้าน", "ซ่อมของเล็ก ๆ ที่ค้างไว้ได้", "เปิดหน้าต่างรับลม บ้านจะสดชื่น"], ["เหมาะตกแต่งบ้านหรือซื้อของเข้าบ้าน", "บ้านอบอุ่น อยู่แล้วสบายใจ", "เรื่องบ้านและที่ดินมีข่าวดี", "เหมาะไปดูบ้านหรือคอนโดใหม่"]],
+    merit: [["ทำบุญเล็ก ๆ ด้วยใจก็พอ ไม่ต้องฝืน", "ระวังคนอ้างทำบุญมาขอเงิน เช็กก่อนให้", "ช่วยคนใกล้ตัวก่อนก็เป็นบุญแล้ว", "สวดมนต์สั้น ๆ ก่อนนอนช่วยให้ใจสงบ"], ["ใส่บาตรหรือทำบุญเล็ก ๆ ได้ดี", "ช่วยเหลือคนรอบตัวเท่าที่ทำได้", "แบ่งปันของที่ไม่ใช้ให้คนที่ต้องการ", "ให้อาหารสัตว์จร ใจจะอิ่ม"], ["ทำบุญวันนี้ได้อานิสงส์แรง", "เหมาะทำจิตอาสา ได้เจอคนดี ๆ", "ความใจดีของคุณจะกลับมาเป็นเรื่องดี", "บริจาคหรือช่วยเหลือแล้วสบายใจมาก"]],
+    luck: [["โชคยังไม่เข้าข้าง อย่าเสี่ยงหนัก", "เก็บแรงไว้ลุ้นวันอื่นดีกว่า", "ของหายง่าย ระวังกระเป๋าเงิน", "อย่าเชื่อข้อเสนอที่ดีเกินจริง"], ["โชคปกติ มีลุ้นเล็ก ๆ", "อาจได้ส่วนลดหรือของแถมเล็ก ๆ", "ลองสังเกตตัวเลขรอบตัว อาจเจอเลขสวย", "ลุ้นเพื่อความสนุกได้ แต่อย่ามาก"], ["โชคดี มีเกณฑ์ได้ของหรือได้ลาภ", "มีคนนำโชคมาให้แบบไม่คาดคิด", "เลขสวยมาหาคุณ ลองดูเลขมงคลวันนี้", "ทำอะไรก็มีโชคช่วย"]]
+};
+// [id, ชื่อ, emoji, ตำแหน่งทักษาที่หนุน, ด้านหลักที่อิง (0 งาน 1 เงิน 2 รัก 3 สุขภาพ / -1 ไม่อิง)]
+const HORO_ASP = [
+    ["work", "การงาน", "💼", ["เดช", "อุตสาหะ"], 0], ["biz", "ธุรกิจ/ค้าขาย", "🏪", ["ศรี", "เดช"], 1], ["money", "การเงิน", "💰", ["ศรี", "มูละ"], 1], ["invest", "การลงทุน", "📈", ["มูละ", "ศรี"], 1], ["study", "การเรียน", "📚", ["มนตรี", "อุตสาหะ"], 0],
+    ["love", "ความรัก", "💗", ["ศรี", "บริวาร"], 2], ["family", "ครอบครัว", "🏡", ["บริวาร", "มูละ"], 2], ["friend", "เพื่อนและมิตรภาพ", "🤝", ["บริวาร", "มนตรี"], 2], ["social", "สังคม", "🎉", ["บริวาร", "เดช"], 2],
+    ["health", "สุขภาพ", "🌿", ["อายุ"], 3], ["mind", "อารมณ์และจิตใจ", "🧘", ["อายุ", "มนตรี"], 3], ["rest", "การพักผ่อน", "😴", ["อายุ", "มูละ"], 3], ["hobby", "งานอดิเรก", "🎨", ["ศรี", "อุตสาหะ"], -1], ["travel", "การเดินทาง", "🚗", ["อุตสาหะ", "บริวาร"], -1], ["home", "ที่พักอาศัย", "🏠", ["มูละ"], 1],
+    ["merit", "ทำบุญ/จิตอาสา", "🙏", ["มนตรี"], -1], ["luck", "โชคลาภ", "🍀", ["ศรี"], 1]
+];
+const HORO_ASP_GROUPS = [["งานและเงิน", "💼", ["work", "biz", "money", "invest", "study"]], ["ความสัมพันธ์", "💗", ["love", "family", "friend", "social"]], ["ชีวิตประจำวัน", "🌿", ["health", "mind", "rest", "hobby", "travel", "home"]], ["อื่น ๆ", "🙏", ["merit", "luck"]]];
+const HORO_MAIN = { work: 0, money: 1, love: 2, health: 3 };
+function horoAspects(P, D) {
+    const seed = P.seed + "|" + horoKey(D.date) + "|asp";
+    const mid = 3 + (D.total - 3) * 0.6;
+    return HORO_ASP.map(([id, name, emoji, pos, fx]) => {
+        if (id in HORO_MAIN) { const i = HORO_MAIN[id]; return { id, name, emoji, score: D.scores[i], text: D.lines[i] }; }
+        const base = fx >= 0 ? (D.scores[fx] + mid) / 2 : mid;
+        const v = base + (pos.includes(D.posName) ? 1 : 0) - (D.posName === "กาลกิณี" ? 0.5 : 0) + (horoRnd(seed, "s" + id) - 0.5) * 1.6;
+        const score = Math.max(1, Math.min(5, Math.round(v)));
+        return { id, name, emoji, score, text: horoPick(HORO_ASP_TXT[id][score <= 2 ? 0 : score === 3 ? 1 : 2], seed, "t" + id) };
+    });
+}
+const horoAspHi = (P, D, A) => {
+    const seed = P.seed + "|" + horoKey(D.date) + "|hi";
+    const r = A.map(a => ({ a, k: a.score + horoRnd(seed, a.id) * 0.9 }));
+    return { good: [...r].sort((x, y) => y.k - x.k).filter(x => x.a.score >= 4).slice(0, 3).map(x => x.a), bad: [...r].sort((x, y) => x.k - y.k).filter(x => x.a.score <= 2).slice(0, 2).map(x => x.a) };
+};
+function HoroAspectsCard({ P, D }) {
+    const A = useMemo(() => horoAspects(P, D), [P, horoKey(D.date)]);
+    const H = horoAspHi(P, D, A);
+    const [open, setOpen] = useState(null);
+    const [pins, setPins] = useStore(horoPinStore);
+    const byId = {}; A.forEach(a => { byId[a.id] = a; });
+    const tone = s => s >= 4 ? { background: "rgba(34,197,94,.13)", border: "1px solid rgba(34,197,94,.45)" } : s <= 2 ? { background: "rgba(245,158,11,.11)", border: "1px solid rgba(245,158,11,.45)" } : { background: "rgba(39,39,42,.6)", border: "1px solid #3f3f46" };
+    const togglePin = id => setPins(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id].slice(-3));
+    const names = l => l.map(a => `${a.emoji} ${a.name}`).join(" · ");
+    return React.createElement("div", { className: "glass rounded-2xl p-4", style: { boxShadow: "0 0 0 1px rgba(192,139,255,.22), 0 0 26px rgba(192,139,255,.06)" } },
+        React.createElement(SectionTitle, { icon: "LayoutGrid", className: "glow-violet" }, "ดวงรายด้าน"),
+        React.createElement("div", { className: "rounded-xl px-3 py-2.5 mb-3", style: { background: "rgba(34,197,94,.08)", border: "1px solid rgba(34,197,94,.3)" } },
+            React.createElement("p", { className: "text-[13.5px] text-emerald-300 leading-relaxed" }, "🌟 วันนี้เด่นเรื่อง: ", React.createElement("b", null, H.good.length ? names(H.good) : "ทุกด้านพอ ๆ กัน")),
+            React.createElement("p", { className: "text-[13.5px] leading-relaxed mt-0.5", style: { color: "#fdba74" } }, "⚠️ ระวังเรื่อง: ", React.createElement("b", null, H.bad.length ? names(H.bad) : "วันนี้ไม่มีเรื่องน่าห่วง"))),
+        HORO_ASP_GROUPS.map(([g, ge, ids]) => React.createElement("div", { key: g, className: "mb-3" },
+            React.createElement("p", { className: "text-[12.5px] text-zinc-400 mb-1.5" }, ge, " ", g),
+            React.createElement("div", { className: "grid grid-cols-3 gap-1.5" }, ids.map(id => { const a = byId[id]; return React.createElement("button", { key: id, onClick: () => setOpen(open === id ? null : id), className: "rounded-lg px-1.5 py-1.5 text-center", style: { ...tone(a.score), outline: open === id ? "2px solid #e4e4e7" : "none" } },
+                React.createElement("p", { className: "text-[12px] text-zinc-100 leading-tight" }, a.emoji, " ", a.name, pins.includes(id) ? " 📌" : ""),
+                React.createElement("p", { className: "text-[11px] mt-0.5" }, "⭐".repeat(a.score))); })),
+            ids.includes(open) && React.createElement("div", { className: "rounded-xl border border-zinc-700 bg-zinc-900/70 px-3 py-2.5 mt-1.5 fade-in" },
+                React.createElement("div", { className: "flex items-center justify-between" }, React.createElement("b", { className: "text-[14px] text-zinc-100" }, byId[open].emoji, " ", byId[open].name), React.createElement("span", { className: "text-[13px]" }, horoStars(byId[open].score))),
+                React.createElement("p", { className: "text-[14px] text-zinc-300 mt-1 leading-relaxed" }, byId[open].text),
+                React.createElement("button", { onClick: () => togglePin(open), className: "text-[12px] text-zinc-400 underline mt-1.5" }, pins.includes(open) ? "เลิกปักหมุด" : "📌 ปักหมุดไว้หน้าแรก (สูงสุด 3 ด้าน)")))),
+        React.createElement("p", { className: "text-[11px] text-zinc-500 leading-snug" }, "แตะแต่ละด้านเพื่ออ่านคำทำนาย · ปักหมุดด้านที่สนใจ จะขึ้นบนการ์ดหน้าแรกทุกวัน · เรื่องเงินและการลงทุนเป็นแนวทางเพื่อความบันเทิง ไม่ใช่คำแนะนำการลงทุน"));
+}
+function HoroPinnedLines({ P, D }) {
+    const [pins] = useStore(horoPinStore);
+    const A = horoAspects(P, D);
+    const H = horoAspHi(P, D, A);
+    const sel = pins.length ? A.filter(a => pins.includes(a.id)) : null;
+    if (!sel) return React.createElement("p", { className: "text-[12.5px] text-zinc-300 mt-1.5 leading-snug" }, "🌟 เด่นเรื่อง: ", H.good.length ? H.good.map(a => a.name).join(" · ") : "ทุกด้านพอ ๆ กัน");
+    return React.createElement("div", { className: "mt-1.5 space-y-0.5" }, sel.map(a => React.createElement("p", { key: a.id, className: "text-[12.5px] text-zinc-300 leading-snug" }, "📌 ", a.emoji, " ", a.name, " ", "⭐".repeat(a.score), " · ", a.text)));
+}
+
 function HoroLevelBadge({ D }) {
     const L = horoLevel(D.total), b = horoBest(D);
     return React.createElement("div", { className: "rounded-xl px-3 py-2.5 mt-2", style: { background: L.bg, border: `1px solid ${L.bd}`, boxShadow: L.glow } },
@@ -637,6 +715,7 @@ function HoroMiniCard({ onOpen }) {
         React.createElement("div", { className: "flex items-center justify-between" }, React.createElement("p", { className: "text-[12.5px] text-zinc-400" }, "🔮 ดวงวันนี้ของ", P.nick), React.createElement("span", { className: "text-[13px]" }, horoStars(Math.round(D.total)))),
         React.createElement("p", { className: "text-[22px] font-black leading-snug mt-1", style: { color: L.color } }, L.emoji, " ", L.head),
         React.createElement("p", { className: "text-[13px] text-zinc-300 mt-0.5" }, L.sub),
+        React.createElement(HoroPinnedLines, { P, D }),
         React.createElement("p", { className: "text-[12.5px] text-cyan-100 mt-1.5 leading-snug" }, hint),
         React.createElement("p", { className: "text-[12.5px] text-zinc-400 mt-1.5 flex items-center gap-2" }, "สีมงคล ", React.createElement("span", { style: { width: 12, height: 12, borderRadius: 99, background: D.lucky.hex, display: "inline-block" } }), D.lucky.color, React.createElement("span", { className: "ml-auto text-zinc-300" }, "ดูดวงเต็ม ›")));
 }
