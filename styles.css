@@ -6,3 +6,5 @@
 .space-y-0\.5>:not([hidden])~:not([hidden]){margin-top:.125rem}
 
 .bg-amber-500\/10{background-color:rgba(245,158,11,.1)}.border-amber-400\/50{border-color:rgba(251,191,36,.5)}.text-amber-200\/80{color:rgba(253,230,138,.8)}.h-20{height:5rem}.rounded-t{border-top-left-radius:.25rem;border-top-right-radius:.25rem}.pb-2\.5{padding-bottom:.625rem}
+
+.grid-cols-7{grid-template-columns:repeat(7,minmax(0,1fr))}.grid-cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}.ml-2{margin-left:.5rem}.ml-auto{margin-left:auto}.text-\[20px\]{font-size:20px}
